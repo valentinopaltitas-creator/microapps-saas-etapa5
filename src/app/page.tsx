@@ -2,6 +2,7 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 import type {FormEvent,ReactNode} from "react";
 import {db} from "@/lib/supabase";
+import Link from 'next/link';
 import {QRCodeSVG} from "qrcode.react";
 import {CalendarDays,Users,Wallet,Package,Truck,Link2,Scissors,LogOut,RefreshCw} from "lucide-react";
 import type {User} from "@supabase/supabase-js";
@@ -89,15 +90,49 @@ export default function Home(){
   income:cash.filter(x=>x.kind==='income').reduce((s,x)=>s+Number(x.amount),0),
   expenses:cash.filter(x=>x.kind==='expense').reduce((s,x)=>s+Number(x.amount),0),
   low:products.filter(x=>x.stock<=x.min_stock).length}),[appts,cash,products]);
+ const [gate,setGate]=useState<{key:string;state:string}|null>(null);
+ const gateKey=(user?.id||'')+'/'+businessId;
+ useEffect(()=>{
+  if(!user)return;
+  let live=true,revision=0;
+  let timer:ReturnType<typeof setTimeout>;
+  async function check(){
+   const seq=++revision;
+   try{
+    const account=await db().rpc('account_access');
+    if(account.error)throw account.error;
+    let state=String(account.data);
+    let remaining=60000;
+    if(state==='active'&&businessId){
+     const expiry=await db().rpc('my_access_until',{b:businessId});
+     if(expiry.error)throw expiry.error;
+     const ms=Date.parse(String(expiry.data))-Date.now();
+     if(!(ms>0))state='expired';else remaining=Math.min(ms,remaining);
+    }
+    if(live&&seq===revision){
+     setGate({key:gateKey,state});
+     clearTimeout(timer);
+     timer=setTimeout(()=>{if(live){setGate(null);void check()}},Math.max(1,remaining));
+    }
+   }catch{if(live&&seq===revision)setGate({key:gateKey,state:'error'})}
+  }
+  function focus(){setGate(null);void check()}
+  void check();
+  window.addEventListener('focus',focus);
+  return ()=>{live=false;clearTimeout(timer);window.removeEventListener('focus',focus)};
+ },[gateKey,businessId,user]);
  if(!ready)return <div className="shell">Cargando...</div>;
  if(!user)return <Auth notice={notice}/>;
+ if(!gate||gate.key!==gateKey)return <main className="shell">Verificando acceso…</main>;
+ if(gate.state==='expired'||gate.state==='error')return <main className="shell"><div className="card"><h1>{gate.state==='expired'?'Acceso suspendido':'No se pudo verificar el acceso'}</h1><p>{gate.state==='expired'?'El acceso a esta barbería ha vencido. Contacta con MACAPP para renovar.':'Recarga la página para volver a intentar.'}</p>{gate.state==='expired'&&<p><Link href="/pagos">Renovar suscripción</Link></p>}<button className="btn" onClick={()=>db().auth.signOut()}>Salir</button></div></main>;
+ if(gate.state==='active'&&!b)return <main className="shell">Cargando barbería…</main>;
  if(!b)return <div className="shell"><header className="top"><div className="logo">MAC<span>APP</span></div><button className="btn alt" onClick={()=>db().auth.signOut()}>Salir</button></header><div className="auth"><div className="card"><h2>Crea tu primera barbería</h2><p className="muted">Cada negocio tendrá sus propios datos y un enlace público de reservas.</p>{notice&&<p className="notice">{notice}</p>}<Form submit="Crear barbería" onSubmit={async d=>{await act(async()=>{const {error}=await db().from('businesses').insert({owner_id:user.id,name:f(d,'name'),slug:f(d,'slug').toLowerCase(),phone:f(d,'phone')||null});fail(error);await loadBusinesses()},'Negocio creado')}}><Field name="name" label="Nombre del negocio" placeholder="Barbería Central"/><Field name="slug" label="Enlace único (letras, números y guiones)" placeholder="barberia-central"/><Field name="phone" label="WhatsApp (opcional)" required={false} placeholder="51999999999"/></Form></div></div></div>;
  return <div className="shell"><header className="top"><div className="logo">✂ MAC<span>APP</span></div><div className="row"><select aria-label="Negocio" value={businessId} onChange={e=>setBusinessId(e.target.value)} style={{width:210}}>{businesses.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><button className="btn alt" title="Actualizar" onClick={()=>load(businessId)}><RefreshCw size={16}/></button><button className="btn ghost" onClick={()=>db().auth.signOut()}><LogOut size={16}/></button></div></header>
  <section className="hero"><div><span className="tag">BARBERÍAS · MVP ETAPAS 1–5</span><h1>{b.name}</h1><p>Reservas, clientes, caja, inventario y proveedores en un solo lugar.</p></div><div><div className="small">Tu enlace público</div><a style={{color:'#f5e8c8',wordBreak:'break-all'}} href={publicUrl} target="_blank" rel="noreferrer">{publicUrl}</a></div></section>
  {notice&&<div className={'notice '+(notice.startsWith('Error')?'error':'')} role="status">{notice} <button className="btn alt" style={{float:'right',padding:'2px 8px'}} onClick={()=>setNotice('')}>×</button></div>}
  <nav className="tabs" aria-label="Secciones">{tabs.map(x=><button key={x.id} className={'tab '+(tab===x.id?'active':'')} onClick={()=>setTab(x.id)}><span className="row" style={{gap:6}}>{x.icon}{x.label}</span></button>)}</nav>
  {loading&&<p className="muted">Actualizando datos...</p>}
- {tab==='overview'&&<><div className="grid"><div className="card"><div className="muted">Clientes</div><div className="stat">{customers.length}</div></div><div className="card"><div className="muted">Citas pendientes</div><div className="stat">{stats.upcoming}</div></div><div className="card"><div className="muted">Ingresos registrados</div><div className="stat">{money(stats.income)}</div></div><div className="card"><div className="muted">Productos en mínimo</div><div className="stat">{stats.low}</div></div></div><div className="card" style={{marginTop:16}}><h3>Para comenzar</h3><p>1. Crea servicios → 2. Registra clientes → 3. Agrega reservas → 4. Comparte el enlace público.</p><p className="muted small">Versión piloto: no envía correos automáticos, no procesa pagos y no aplica límites de planes todavía.</p></div></>}
+ {tab==='overview'&&<><div className="grid"><div className="card"><div className="muted">Clientes</div><div className="stat">{customers.length}</div></div><div className="card"><div className="muted">Citas pendientes</div><div className="stat">{stats.upcoming}</div></div><div className="card"><div className="muted">Ingresos registrados</div><div className="stat">{money(stats.income)}</div></div><div className="card"><div className="muted">Productos en mínimo</div><div className="stat">{stats.low}</div></div></div><div className="card" style={{marginTop:16}}><h3>Para comenzar</h3><p>1. Crea servicios → 2. Registra clientes → 3. Agrega reservas → 4. Comparte el enlace público.</p><p className="muted small">Un mes de prueba gratis. Luego S/ 50 al mes durante los dos primeros meses pagados y S/ 80 al mes desde el tercero.</p><Link href="/pagos">Renovar suscripción</Link></div></>}
  {tab==='customers'&&<div className="card"><h3>Clientes y fidelidad</h3><Form submit="Agregar cliente" onSubmit={d=>act(()=>insert('customers',{name:f(d,'name'),phone:f(d,'phone'),email:f(d,'email')||null}))}><Field name="name" label="Nombre"/><Field name="phone" label="Teléfono"/><Field name="email" label="Correo (opcional)" type="email" required={false}/></Form><Table heads={['Cliente','Teléfono','Visitas','Puntos']} rows={customers.map(x=>[x.name,x.phone,x.visits,x.points])}/></div>}
  {tab==='appointments'&&<div className="grid"><div className="card"><h3>Servicios</h3><Form submit="Crear servicio" onSubmit={d=>act(()=>insert('services',{name:f(d,'name'),price:Number(f(d,'price')),duration_minutes:Number(f(d,'duration'))}))}><Field name="name" label="Servicio" placeholder="Corte clásico"/><Field name="price" label="Precio (S/)" type="number" min="0" step="0.01"/><Field name="duration" label="Duración (min)" type="number" min="10" defaultValue={30}/></Form><Table heads={['Servicio','Precio','Duración']} rows={services.map(x=>[x.name,money(x.price),`${x.duration_minutes} min`])}/></div><div className="card"><h3>Nueva reserva interna</h3><p className="muted small">Usa la página pública para comprobar horarios disponibles; las reservas internas requieren seleccionar un cliente y servicio.</p><Form submit="Crear reserva" onSubmit={d=>act(async()=>{
  const service=services.find(x=>x.id===f(d,'service'));if(!service)throw new Error('Crea un servicio primero');
