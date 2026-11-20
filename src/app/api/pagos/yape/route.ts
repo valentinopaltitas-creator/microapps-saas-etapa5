@@ -27,9 +27,10 @@ export async function POST(req:Request){
  if(pay.status!=='approved')return respond('Pago '+(pay.status==='rejected'?'rechazado.':'pendiente de confirmación.'));
  if(pay.live_mode===testMode||String(pay.collector_id)!==collector||pay.currency_id!=='PEN'||pay.transaction_amount!==shop.amount)return respond('El pago requiere revisión del administrador.',409);
  if(testMode)return respond('Prueba aprobada. No se cobró dinero ni se activó una suscripción real.');
- if(testMode)return respond('Prueba aprobada. No se cobró dinero ni se activó una suscripción real.');
  const server=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,key!);
  const {error}=await server.rpc('apply_mp_payment',{b:shop.business_id,p:shop.period,a:shop.amount,payment_id:String(pay.id)});
  return respond(error?'Pago aprobado. La activación está pendiente de conciliación.':'Pago aprobado. Tu acceso ya fue renovado.');
 }
+
+
 
