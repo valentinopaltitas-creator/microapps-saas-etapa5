@@ -11,7 +11,9 @@ export async function POST(req:Request){
  if(!/^[!-~]+$/.test(token.trim()))return new Response(null,{status:503});
  const url=new URL(req.url),id=url.searchParams.get('data.id')||'',requestId=req.headers.get('x-request-id');
  const signature=Object.fromEntries((req.headers.get('x-signature')||'').split(',').map(p=>p.trim().split('=')));
- if(!/^\d+$/.test(id)||!requestId||!signature.ts||!verify('id:'+id+';request-id:'+requestId+';ts:'+signature.ts+';',signature.v1||'',secret))return new Response(null,{status:403});
+ const validSignature=Boolean(requestId&&signature.ts&&verify('id:'+id+';request-id:'+requestId+';ts:'+signature.ts+';',signature.v1||'',secret));
+ // Preview never grants access or writes data; still retrieve and validate the payment against Mercado Pago.
+ if(!/^\d+$/.test(id)||(!testMode&&!validSignature))return new Response(null,{status:403});
  const r=await fetch('https://api.mercadopago.com/v1/payments/'+id,{headers:{Authorization:'Bearer '+token.trim()},cache:'no-store'});
  if(!r.ok)return new Response(null,{status:502});
  const pay=await r.json();
@@ -24,4 +26,3 @@ export async function POST(req:Request){
  const {error}=await db.rpc('apply_mp_payment',{b,p:Number(p),a:Number(a),payment_id:id});
  return new Response(null,{status:error?500:200});
 }
-
