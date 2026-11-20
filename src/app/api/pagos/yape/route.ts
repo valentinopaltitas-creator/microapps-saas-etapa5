@@ -8,7 +8,7 @@ export async function POST(req:Request){
  if(req.headers.get('origin')!==origin)return respond('Solicitud inválida',403);
  const testMode=process.env.VERCEL_ENV!=='production'&&process.env.MP_TEST_MODE==='true';
  const access=process.env.MP_ACCESS_TOKEN?.trim(),secret=process.env.MP_WEBHOOK_SECRET,key=process.env.SUPABASE_SERVICE_ROLE_KEY,collector=process.env.MP_COLLECTOR_ID;
- if(!access||!secret||!key||!collector)return respond('Pago pendiente de activación',503);
+ if(!access||!secret||!collector||(!testMode&&!key))return respond('Pago pendiente de activación',503);
  const jar=await cookies();
  const db=createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,{cookies:{getAll:()=>jar.getAll(),setAll:()=>{}}});
  const {data:{user}}=await db.auth.getUser();
@@ -27,7 +27,9 @@ export async function POST(req:Request){
  if(pay.status!=='approved')return respond('Pago '+(pay.status==='rejected'?'rechazado.':'pendiente de confirmación.'));
  if(pay.live_mode===testMode||String(pay.collector_id)!==collector||pay.currency_id!=='PEN'||pay.transaction_amount!==shop.amount)return respond('El pago requiere revisión del administrador.',409);
  if(testMode)return respond('Prueba aprobada. No se cobró dinero ni se activó una suscripción real.');
- const server=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,key);
+ if(testMode)return respond('Prueba aprobada. No se cobró dinero ni se activó una suscripción real.');
+ const server=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,key!);
  const {error}=await server.rpc('apply_mp_payment',{b:shop.business_id,p:shop.period,a:shop.amount,payment_id:String(pay.id)});
  return respond(error?'Pago aprobado. La activación está pendiente de conciliación.':'Pago aprobado. Tu acceso ya fue renovado.');
 }
+
