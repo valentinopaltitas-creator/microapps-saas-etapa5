@@ -21,6 +21,16 @@ export async function POST(req:Request){
  const ref=['macapp',shop.business_id,shop.period,shop.amount].join(':');
  const sign=createHmac('sha256',secret).update(ref).digest('hex');
  const idem=createHmac('sha256',secret).update(user.id+':'+input.token).digest('hex');
+ if(testMode){
+ const amount=Number(shop.amount).toFixed(2);
+ const result=await fetch('https://api.mercadopago.com/v1/orders',{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json','X-Idempotency-Key':idem},body:JSON.stringify({type:'online',processing_mode:'automatic',external_reference:ref+':'+sign,total_amount:amount,payer:{email:'test_payer@example.com',entity_type:'individual',identification:{type:'DNI',number:'12345678'},phone:{area_code:'51',number:'111111111'}},transactions:{payments:[{amount,payment_method:{id:'yape',type:'debit_card',token:input.token}}]}})});
+ const order=await result.json().catch(()=>({}));
+ if(!result.ok)return respond('Prueba rechazada: '+String(order.errors?.[0]?.message||order.message||order.error||result.status).slice(0,200),422);
+ const payment=order.transactions?.payments?.[0];
+ if(order.status!=='processed'||order.status_detail!=='accredited'||payment?.status!=='processed'||payment?.status_detail!=='accredited')return respond('Prueba: '+String(order.status)+' / '+String(order.status_detail),422);
+ if(order.currency!=='PEN'||Number(order.total_paid_amount)!==Number(shop.amount)||Number(payment.paid_amount)!==Number(shop.amount))return respond('La orden de prueba requiere revisión.',409);
+ return respond('Prueba aprobada por Mercado Pago. Orden '+order.id+'. No se cobró dinero ni se activó una suscripción real.');
+ }
  const r=await fetch('https://api.mercadopago.com/v1/payments',{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json','X-Idempotency-Key':idem},body:JSON.stringify({token:input.token,transaction_amount:shop.amount,description:'MACAPP · mes '+shop.period,installments:1,payment_method_id:'yape',payer:{email:user.email},external_reference:ref+':'+sign,notification_url:origin+'/api/pagos/notificacion'})});
  if(!r.ok){
  const failure=await r.json().catch(()=>({}));
