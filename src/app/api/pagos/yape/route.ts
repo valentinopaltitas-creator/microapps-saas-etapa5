@@ -23,7 +23,7 @@ export async function POST(req:Request){
  const idem=createHmac('sha256',secret).update(user.id+':'+input.token).digest('hex');
  if(testMode){
  const amount=Number(shop.amount).toFixed(2);
- const result=await fetch('https://api.mercadopago.com/v1/orders',{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json','X-Idempotency-Key':idem},body:JSON.stringify({type:'online',processing_mode:'automatic',external_reference:ref+':'+sign,total_amount:amount,payer:{email:'test_payer@example.com',entity_type:'individual',identification:{type:'DNI',number:'12345678'},phone:{area_code:'51',number:'111111111'}},transactions:{payments:[{amount,payment_method:{id:'yape',type:'debit_card',token:input.token}}]}})});
+ const result=await fetch('https://api.mercadopago.com/v1/orders',{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json','X-Idempotency-Key':idem},body:JSON.stringify({type:'online',processing_mode:'automatic',external_reference:sign,total_amount:amount,payer:{email:'test_payer@example.com',entity_type:'individual',identification:{type:'DNI',number:'12345678'},phone:{area_code:'51',number:'111111111'}},transactions:{payments:[{amount,payment_method:{id:'yape',type:'debit_card',token:input.token}}]}})});
  const order=await result.json().catch(()=>({}));
  if(!result.ok)return respond('Prueba rechazada: '+String(order.errors?.[0]?.message||order.message||order.error||result.status).slice(0,200),422);
  const payment=order.transactions?.payments?.[0];
